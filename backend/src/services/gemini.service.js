@@ -1,6 +1,7 @@
 const { GoogleGenAI } = require('@google/genai');
 const config = require('../config/config');
 const ApplicationError = require('../utils/ApplicationError');
+const logger = require('../utils/logger');
 
 const ai = new GoogleGenAI({
   apiKey: config.GEMINI_API_KEY
@@ -281,7 +282,7 @@ function buildQaEvidenceCheck(releasePackage, generated) {
   };
 }
 
-const generateBrief = async (releasePackage) => {
+const generateBrief = async (releasePackage, { onToken } = {}) => {
   if (!config.GEMINI_API_KEY) {
     throw new ApplicationError('Gemini API key is not configured', 500);
   }
@@ -333,8 +334,8 @@ ${JSON.stringify(releasePackage, null, 2)}
 `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: config.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+    const responseStream = await ai.models.generateContentStream({
+      model: config.GEMINI_MODEL,
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -342,14 +343,21 @@ ${JSON.stringify(releasePackage, null, 2)}
       }
     });
 
-    if (!response.text) {
+    let responseText = '';
+    for await (const chunk of responseStream) {
+      if (typeof chunk.text !== 'string' || !chunk.text) continue;
+      responseText += chunk.text;
+      onToken?.(chunk.text);
+    }
+
+    if (!responseText) {
       throw new ApplicationError('Gemini returned an empty response', 502);
     }
 
     let output;
 
     try {
-      output = JSON.parse(response.text);
+      output = JSON.parse(responseText);
     } catch {
       throw new ApplicationError('Gemini returned invalid JSON', 502);
     }
@@ -447,6 +455,11 @@ ${JSON.stringify(releasePackage, null, 2)}
 
     return output;
   } catch (error) {
+    logger.error('ai.gemini.brief_generation_failed', {
+      model: config.GEMINI_MODEL,
+      error: logger.errorDetails(error)
+    });
+
     if (error.statusCode) {
       throw error;
     }

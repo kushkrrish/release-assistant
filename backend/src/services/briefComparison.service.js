@@ -337,7 +337,9 @@ function comparePackages(packageA, packageB) {
     };
 }
 
-async function compareBriefVersions(releaseId, from, to) {
+async function compareBriefVersions(releaseId, from, to, options = {}) {
+    options.onProgress?.('Validating the selected brief versions.');
+
     if (!mongoose.isValidObjectId(releaseId)) {
         throw new ApplicationError('Invalid release ID', 400);
     }
@@ -355,7 +357,10 @@ async function compareBriefVersions(releaseId, from, to) {
         toVersion
     );
 
-    if (cached?.comparison) return cached.comparison;
+    if (cached?.comparison) {
+        options.onProgress?.('Loaded the completed comparison from cache.');
+        return cached.comparison;
+    }
 
     const release = await ReleaseRepository.findById(releaseId);
 
@@ -385,6 +390,7 @@ async function compareBriefVersions(releaseId, from, to) {
 
     const briefDiff = compareBriefs(briefA, briefB);
     const packageDiff = comparePackages(packageA, packageB);
+    options.onProgress?.('Compared brief fields, citations, and source packages.');
 
     let aiAnalysis = {
         status: 'unavailable',
@@ -395,6 +401,7 @@ async function compareBriefVersions(releaseId, from, to) {
     };
 
     try {
+        options.onProgress?.('Analyzing impacts and readiness with Gemini.');
         const analysis =
             await briefComparisonGeminiService.analyzeComparison({
                 briefA: publicBrief(briefA),
@@ -402,7 +409,8 @@ async function compareBriefVersions(releaseId, from, to) {
                 briefDiff,
                 packageA: publicPackage(packageA),
                 packageB: publicPackage(packageB),
-                packageDiff
+                packageDiff,
+                onToken: options.onToken
             });
 
         aiAnalysis = {

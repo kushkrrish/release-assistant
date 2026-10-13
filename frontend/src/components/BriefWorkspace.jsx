@@ -4,6 +4,7 @@ import { getItems, getBriefId, getErrorMessage } from '../utils/briefHelper';
 import BriefComparisonPanel from './BriefComparisonPanel';
 import BriefDetailsPanel from './BriefDetailsPanel';
 import BriefHistoryList from './BriefHistoryList';
+import StreamingLoader from './StreamingLoader';
 
 const panel = 'bg-white border border-gray-200 rounded-xl p-5 shadow-sm';
 
@@ -28,6 +29,10 @@ export default function BriefWorkspace({ releaseId }) {
 
   const [loading, setLoading] = useState(false);
   const [comparing, setComparing] = useState(false);
+  const [generationStatus, setGenerationStatus] = useState('');
+  const [generationStream, setGenerationStream] = useState('');
+  const [comparisonStatus, setComparisonStatus] = useState('');
+  const [comparisonStream, setComparisonStream] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const comparisonRequestId = useRef(0);
@@ -115,10 +120,17 @@ export default function BriefWorkspace({ releaseId }) {
       return;
     }
     setLoading(true);
+    setGenerationStatus('Checking the release package.');
+    setGenerationStream('');
     setError('');
     setMessage('');
     try {
-      const brief = await generateBrief(releaseId, packageVersion);
+      const brief = await generateBrief(releaseId, packageVersion, (event, payload) => {
+        if (event === 'progress') setGenerationStatus(payload.message);
+        if (event === 'token') {
+          setGenerationStream((current) => `${current}${payload.text}`.slice(-20000));
+        }
+      });
       setMessage(`Brief retrieved/generated successfully for package v${packageVersion}.`);
       await loadData();
       if (brief) setSelectedId(getBriefId(brief));
@@ -126,6 +138,8 @@ export default function BriefWorkspace({ releaseId }) {
       setError(getErrorMessage(err));
     } finally {
       setLoading(false);
+      setGenerationStatus('');
+      setGenerationStream('');
     }
   };
 
@@ -226,17 +240,33 @@ export default function BriefWorkspace({ releaseId }) {
       return;
     }
     setComparing(true);
+    setComparisonStatus('Starting the comparison.');
+    setComparisonStream('');
     setError('');
     setMessage('');
     const requestId = ++comparisonRequestId.current;
     setComparison(null);
     try {
-      const result = await compareBriefVersions(releaseId, fromVersion, toVersion);
+      const result = await compareBriefVersions(
+        releaseId,
+        fromVersion,
+        toVersion,
+        (event, payload) => {
+          if (event === 'progress') setComparisonStatus(payload.message);
+          if (event === 'token') {
+            setComparisonStream((current) => `${current}${payload.text}`.slice(-20000));
+          }
+        }
+      );
       if (requestId === comparisonRequestId.current) setComparison(result);
     } catch (err) {
       if (requestId === comparisonRequestId.current) setError(getErrorMessage(err));
     } finally {
-      if (requestId === comparisonRequestId.current) setComparing(false);
+      if (requestId === comparisonRequestId.current) {
+        setComparing(false);
+        setComparisonStatus('');
+        setComparisonStream('');
+      }
     }
   };
 
@@ -274,6 +304,17 @@ export default function BriefWorkspace({ releaseId }) {
             Refresh
           </button>
         </div>
+        {generationStatus && (
+          <StreamingLoader
+            title="Generating release brief"
+            status={generationStatus}
+            streamedText={generationStream}
+            fields={[
+              { key: 'tech_summary', label: 'Technical summary' },
+              { key: 'client_summary', label: 'Client summary' }
+            ]}
+          />
+        )}
       </section>
 
       {/* Main Workspace Layout */}
@@ -326,6 +367,8 @@ export default function BriefWorkspace({ releaseId }) {
         toVersion={toVersion}
         comparison={comparison}
         comparing={comparing}
+        comparisonStatus={comparisonStatus}
+        comparisonStream={comparisonStream}
         onFromVersionChange={(version) => {
           setFromVersion(version);
           clearComparison();

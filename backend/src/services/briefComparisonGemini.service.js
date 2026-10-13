@@ -199,7 +199,8 @@ async function analyzeComparison({
     briefDiff,
     packageA,
     packageB,
-    packageDiff
+    packageDiff,
+    onToken
 }) {
     if (!config.GEMINI_API_KEY) {
         throw new ApplicationError('Gemini API key is not configured', 500);
@@ -214,8 +215,8 @@ async function analyzeComparison({
         packageDiff
     });
 
-    const response = await ai.models.generateContent({
-        model: config.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+    const responseStream = await ai.models.generateContentStream({
+        model: config.GEMINI_MODEL,
         contents: prompt,
         config: {
             responseMimeType: 'application/json',
@@ -223,7 +224,14 @@ async function analyzeComparison({
         }
     });
 
-    if (!response.text) {
+    let responseText = '';
+    for await (const chunk of responseStream) {
+        if (typeof chunk.text !== 'string' || !chunk.text) continue;
+        responseText += chunk.text;
+        onToken?.(chunk.text);
+    }
+
+    if (!responseText) {
         throw new ApplicationError(
             'Gemini returned an empty comparison analysis'
         );
@@ -232,7 +240,7 @@ async function analyzeComparison({
     let result;
 
     try {
-        result = JSON.parse(response.text);
+        result = JSON.parse(responseText);
     } catch (error) {
         throw new ApplicationError('Gemini returned invalid JSON');
     }

@@ -1,5 +1,5 @@
 
-import { apiRequest, jsonBody } from './http';
+import { apiRequest, apiStream, jsonBody } from './http';
 
 const releasePath = (releaseId) =>
   `/releases/${encodeURIComponent(releaseId)}`;
@@ -23,10 +23,11 @@ export function getPackageHistory(releaseId) {
   return apiRequest(`${releasePath(releaseId)}/packages`);
 }
 
-export function generateBrief(releaseId, packageVersion) {
-  return apiRequest(
-    `${releasePath(releaseId)}/briefs/from-package/${encodeURIComponent(packageVersion)}`,
-    { method: 'POST' }
+export function generateBrief(releaseId, packageVersion, onEvent) {
+  const query = new URLSearchParams({ stream: 'true' });
+  return apiStream(
+    `${releasePath(releaseId)}/briefs/from-package/${encodeURIComponent(packageVersion)}?${query}`,
+    { method: 'POST', onEvent }
   );
 }
 
@@ -34,14 +35,16 @@ export function getAllBriefs(releaseId) {
   return apiRequest(`${releasePath(releaseId)}/briefs`);
 }
 
-export function compareBriefVersions(releaseId, fromVersion, toVersion) {
+export function compareBriefVersions(releaseId, fromVersion, toVersion, onEvent) {
   const query = new URLSearchParams({
     from: String(fromVersion),
-    to: String(toVersion)
+    to: String(toVersion),
+    stream: 'true'
   });
 
-  return apiRequest(
-    `${releasePath(releaseId)}/briefs/compare?${query}`
+  return apiStream(
+    `${releasePath(releaseId)}/briefs/compare?${query}`,
+    { onEvent }
   );
 }
 

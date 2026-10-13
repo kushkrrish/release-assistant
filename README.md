@@ -15,6 +15,7 @@ The application is split into a React/Vite frontend and an Express/Mongoose API.
 - Marks briefs stale when a newer package is saved, and prevents stale briefs from being edited or approved.
 - Compares two brief versions and their source packages, with deterministic field and citation diffs plus optional AI analysis.
 - Uses Upstash Redis as an expiring cache for completed comparison results to reduce repeat comparison work and Gemini calls.
+- Streams brief generation and comparison progress to the website with Server-Sent Events (SSE), including partial AI summary previews.
 
 ## Application workflow
 
@@ -112,6 +113,8 @@ All application endpoints are under `/api/v1`. Successful responses generally us
 | `POST` | `/api/v1/releases/:releaseId/briefs/:briefId/reject` | Reject a pending brief with feedback |
 | `GET` | `/api/v1/releases/:releaseId/briefs/compare?from=1&to=2` | Compare two brief versions |
 
+The brief generation and comparison endpoints keep their normal JSON responses for tools such as Postman. Add `stream=true` to either request to receive an SSE stream instead. The website uses this mode to show progress and partial Gemini summaries while the backend continues validating the complete structured response before saving or displaying the final result.
+
 Reviewer identity is currently supplied to the API as `reviewer_id`; this project does not currently implement user authentication or authorization. Do not treat a reviewer ID as proof of identity. Add an authentication/authorization layer before using the application for workflows that require verified identities or access control.
 
 ## Technology and design decisions
@@ -173,6 +176,34 @@ Copy-Item backend/.env.example backend/.env
 
 Edit `backend/.env` and provide valid values for `MONGO_URI` and `GEMINI_API_KEY`. To enable comparison caching, also configure `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`. Never commit `.env` files or expose credentials in frontend `VITE_*` variables.
 
+### Add demo data for reviewers
+
+To make a sample release and package available in the app, configure `MONGO_URI` and `DEMO_MONGO_URI` to the **same dedicated database** whose name includes `demo` or `test`. For example, for a local MongoDB instance:
+
+```dotenv
+MONGO_URI=mongodb://localhost:27017/release-assistant-demo
+DEMO_MONGO_URI=mongodb://localhost:27017/release-assistant-demo
+```
+
+For a hosted database, use a separate demo/test database in your MongoDB connection URI. Do not point this command at a production database. From the `backend/` directory, install dependencies and seed the sample data:
+
+```powershell
+npm ci
+npm run seed:demo
+```
+
+The script creates a clearly labeled **Demo Release - Checkout Improvements** and package version 1 with sample feature, bug-fix, QA, limitation, migration, and affected-user notes. It is safe to rerun: an existing seed package is left unchanged. The script refuses to run unless `DEMO_MONGO_URI` is set and the URI's database name contains `demo` or `test`.
+
+Start the app with `MONGO_URI` pointing to that same database. In the UI, select **Demo Release - Checkout Improvements**, open the brief workspace, and generate a brief from package version 1. Gemini credentials are still needed for brief generation; Redis remains optional.
+
+To explicitly seed the database configured as the running backend's `MONGO_URI` instead, run this command from the deployed Render service shell after deploying the seeder:
+
+```sh
+npm run seed:demo -- --use-app-database
+```
+
+This opt-in inserts the sample release/package into the app's configured database. It does not overwrite existing records and can be rerun safely, but the added demo data will be visible to everyone using that database. Do not run it against production unless you intend to add shared demo records there.
+
 ### 2. Install and run the backend
 
 ```powershell
@@ -205,7 +236,9 @@ The frontend defaults to `http://localhost:5173` and the local API base URL `htt
 | `PORT` | Render supplies it; optional locally | HTTP listen port (local default `5000`) |
 | `NODE_ENV` | Recommended | Runtime mode; use `production` on Render |
 | `MONGO_URI` | Yes for persistence | MongoDB connection string. The code has a local development fallback; production must use a hosted database URI. |
+| `DEMO_MONGO_URI` | Only for seeding demo data | Explicit MongoDB connection URI for `npm run seed:demo`; the database name must include `demo` or `test`. |
 | `GEMINI_API_KEY` | Yes for AI generation/analysis | Gemini API credential |
+| `GEMINI_MODEL` | No | Gemini model ID; defaults to `gemini-3.5-flash-lite`. Confirm the configured model is available to the API key. |
 | `CORS_ORIGINS` | Recommended in production | Comma-separated, exact frontend origins, with no trailing slash |
 | `LOG_LEVEL` | No | Minimum structured-log severity (default `info`) |
 | `UPSTASH_REDIS_REST_URL` | Optional | Upstash Redis REST endpoint |

@@ -2,13 +2,36 @@
 const releaseBriefService = require('../services/releaseBrief.service');
 const briefComparisonService = require('../services/briefComparison.service');
 const logger = require('../utils/logger');
+const { startEventStream, sendEvent, endEventStream } = require('../utils/sse');
+
+function isEventStreamRequest(req) {
+  return req.query.stream === 'true';
+}
 
 const generateBrief = async (req, res) => {
+  const streaming = isEventStreamRequest(req);
+  if (streaming) startEventStream(res);
+
   try {
+    if (streaming) sendEvent(res, 'progress', { message: 'Checking the release package.' });
     const brief = await releaseBriefService.generateBrief(
       req.params.releaseId,
-      req.params.packageVersion
+      req.params.packageVersion,
+      streaming
+        ? {
+            onProgress: (message) => sendEvent(res, 'progress', { message }),
+            onToken: (text) => sendEvent(res, 'token', { text })
+          }
+        : undefined
     );
+
+    if (streaming) {
+      sendEvent(res, 'result', {
+        message: 'Release brief is ready for human review.',
+        data: brief
+      });
+      return endEventStream(res);
+    }
 
     return res.status(201).json({
       success: true,
@@ -17,6 +40,14 @@ const generateBrief = async (req, res) => {
     });
   } catch (error) {
     logger.logRequestError(req, error, 'http.release_brief.generate_failed');
+    if (streaming) {
+      sendEvent(res, 'error', {
+        message: error.statusCode
+          ? error.message
+          : 'Failed to generate release brief'
+      });
+      return endEventStream(res);
+    }
     return res.status(error.statusCode || 500).json({
       success: false,
       message: error.statusCode
@@ -172,6 +203,9 @@ const rejectBrief = async (req, res) => {
   }
 };
 const compareBriefVersions = async (req, res) => {
+  const streaming = isEventStreamRequest(req);
+  if (streaming) startEventStream(res);
+
   try {
     const { releaseId } = req.params;
     const { from, to } = req.query;
@@ -179,8 +213,22 @@ const compareBriefVersions = async (req, res) => {
     const result = await briefComparisonService.compareBriefVersions(
       releaseId,
       from,
-      to
+      to,
+      streaming
+        ? {
+            onProgress: (message) => sendEvent(res, 'progress', { message }),
+            onToken: (text) => sendEvent(res, 'token', { text })
+          }
+        : undefined
     );
+
+    if (streaming) {
+      sendEvent(res, 'result', {
+        message: 'Brief comparison is complete.',
+        data: result
+      });
+      return endEventStream(res);
+    }
 
     return res.status(200).json({
       success: true,
@@ -189,6 +237,14 @@ const compareBriefVersions = async (req, res) => {
     });
   } catch (error) {
     logger.logRequestError(req, error, 'http.release_brief.compare_failed');
+    if (streaming) {
+      sendEvent(res, 'error', {
+        message: error.statusCode
+          ? error.message
+          : 'Failed to compare brief versions'
+      });
+      return endEventStream(res);
+    }
     return res.status(error.statusCode || 500).json({
       success: false,
       message: error.statusCode

@@ -1,4 +1,5 @@
 import { getBriefId, getBriefVersion } from '../utils/briefHelper';
+import StreamingLoader from './StreamingLoader';
 
 function ComparisonValue({ value }) {
   if (Array.isArray(value)) {
@@ -222,6 +223,8 @@ export default function BriefComparisonPanel({
   toVersion,
   comparison,
   comparing,
+  comparisonStatus,
+  comparisonStream,
   onFromVersionChange,
   onToVersionChange,
   onCompare
@@ -270,6 +273,15 @@ export default function BriefComparisonPanel({
           {comparing ? 'Comparing...' : 'Run Structured Diff'}
         </button>
       </div>
+
+      {comparing && (
+        <StreamingLoader
+          title="Comparing brief versions"
+          status={comparisonStatus}
+          streamedText={comparisonStream}
+          fields={[{ key: 'change_summary', label: 'AI comparison summary' }]}
+        />
+      )}
 
       {comparison && (
         <div className="mt-4 bg-gray-50 border p-4 rounded-xl space-y-4 text-xs">

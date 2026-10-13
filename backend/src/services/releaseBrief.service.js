@@ -9,7 +9,7 @@ const briefComparisonCache = require('./briefComparisonCache.service');
 const ApplicationError = require('../utils/ApplicationError');
 
 class ReleaseBriefService {
-    async generateBrief(releaseId, packageVersion) {
+    async generateBrief(releaseId, packageVersion, options = {}) {
         if (!mongoose.isValidObjectId(releaseId)) {
             throw new ApplicationError('Invalid release ID', 400);
         }
@@ -71,7 +71,9 @@ class ReleaseBriefService {
         }
 
         // AI generation happens before the database writes.
-        const generated = await geminiService.generateBrief(packageDoc);
+        options.onProgress?.('Generating a structured brief with Gemini.');
+        const generated = await geminiService.generateBrief(packageDoc, options);
+        options.onProgress?.('Validating the draft and saving it for review.');
 
         const aiContent = {
             tech_summary: generated.tech_summary,
