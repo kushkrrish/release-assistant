@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: release-assistant-api
+    runtime: node
+    rootDir: backend
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: COMPARISON_CACHE_TTL_SECONDS
+        value: "86400"
+      - key: MONGO_URI
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false

@@ -1,5 +1,6 @@
 const { GoogleGenAI } = require('@google/genai');
 const config = require('../config/config');
+const ApplicationError = require('../utils/ApplicationError');
 
 const ai = new GoogleGenAI({
   apiKey: config.GEMINI_API_KEY
@@ -173,11 +174,10 @@ function verifyCitations(releasePackage, citations, warnings) {
       !citation.statement.trim() ||
       !SOURCE_FIELDS.includes(citation.source_field)
     ) {
-      const error = new Error(
-        'Gemini returned a malformed citation'
+      throw new ApplicationError(
+        'Gemini returned a malformed citation',
+        502
       );
-      error.statusCode = 502;
-      throw error;
     }
 
     const sourceText = getSourceText(releasePackage, citation);
@@ -283,11 +283,7 @@ function buildQaEvidenceCheck(releasePackage, generated) {
 
 const generateBrief = async (releasePackage) => {
   if (!config.GEMINI_API_KEY) {
-    const error = new Error(
-      'Gemini API key is not configured'
-    );
-    error.statusCode = 500;
-    throw error;
+    throw new ApplicationError('Gemini API key is not configured', 500);
   }
 
   const prompt = `
@@ -347,11 +343,7 @@ ${JSON.stringify(releasePackage, null, 2)}
     });
 
     if (!response.text) {
-      const error = new Error(
-        'Gemini returned an empty response'
-      );
-      error.statusCode = 502;
-      throw error;
+      throw new ApplicationError('Gemini returned an empty response', 502);
     }
 
     let output;
@@ -359,11 +351,7 @@ ${JSON.stringify(releasePackage, null, 2)}
     try {
       output = JSON.parse(response.text);
     } catch {
-      const error = new Error(
-        'Gemini returned invalid JSON'
-      );
-      error.statusCode = 502;
-      throw error;
+      throw new ApplicationError('Gemini returned invalid JSON', 502);
     }
 
     if (
@@ -377,11 +365,10 @@ ${JSON.stringify(releasePackage, null, 2)}
       !output.qa_evidence_check ||
       !Array.isArray(output.qa_evidence_check.items)
     ) {
-      const error = new Error(
-        'Gemini returned an invalid brief structure'
+      throw new ApplicationError(
+        'Gemini returned an invalid brief structure',
+        502
       );
-      error.statusCode = 502;
-      throw error;
     }
 
     const warnings = output.warnings.filter(
@@ -464,11 +451,7 @@ ${JSON.stringify(releasePackage, null, 2)}
       throw error;
     }
 
-    const apiError = new Error(
-      'Failed to generate brief via Gemini API'
-    );
-    apiError.statusCode = 502;
-    throw apiError;
+    throw new ApplicationError('Failed to generate brief via Gemini API', 502);
   }
 };
 

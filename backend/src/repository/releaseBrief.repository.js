@@ -81,6 +81,13 @@ class ReleaseBriefRepository {
             brief_version: briefVersion
         }).lean();
     }
+
+    async findByPackageVersion(releaseId, packageVersion) {
+        return ReleaseBrief.findOne({
+            release_id: releaseId,
+            package_version: packageVersion
+        }).lean();
+    }
 }
 
 module.exports = new ReleaseBriefRepository();

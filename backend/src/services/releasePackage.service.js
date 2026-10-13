@@ -2,27 +2,23 @@ const mongoose = require('mongoose');
 const releaseRepository = require('../repository/release.repository');
 const packageRepository = require('../repository/releasePackage.repository');
 const briefRepository = require('../repository/releaseBrief.repository');
+const briefComparisonCache = require('./briefComparisonCache.service');
+const ApplicationError = require('../utils/ApplicationError');
 
 class ReleasePackageService {
     async createPackage(releaseId, data) {
         if (!mongoose.isValidObjectId(releaseId)) {
-            const error = new Error('Invalid release ID');
-            error.statusCode = 400;
-            throw error;
+            throw new ApplicationError('Invalid release ID', 400);
         }
 
         const release = await releaseRepository.findById(releaseId);
         if (!release) {
-            const error = new Error('Release not found');
-            error.statusCode = 404;
-            throw error;
+            throw new ApplicationError('Release not found', 404);
         }
 
         const updatedRelease = await releaseRepository.incrementPackageVersion(releaseId);
         if (!updatedRelease) {
-            const error = new Error('Release not found');
-            error.statusCode = 404;
-            throw error;
+            throw new ApplicationError('Release not found', 404);
         }
 
         const packageVersion = updatedRelease.current_package_version;
@@ -41,22 +37,19 @@ class ReleasePackageService {
 
         await releaseRepository.setCurrentPackage(releaseId, createdPackage._id, packageVersion);
         await briefRepository.markStaleByReleaseId(releaseId, packageVersion);
+        await briefComparisonCache.invalidateReleaseComparisons(releaseId);
 
         return createdPackage;
     }
 
     async getPackageHistory(releaseId) {
         if (!mongoose.isValidObjectId(releaseId)) {
-            const error = new Error('Invalid release ID');
-            error.statusCode = 400;
-            throw error;
+            throw new ApplicationError('Invalid release ID', 400);
         }
 
         const release = await releaseRepository.findById(releaseId);
         if (!release) {
-            const error = new Error('Release not found');
-            error.statusCode = 404;
-            throw error;
+            throw new ApplicationError('Release not found', 404);
         }
 
         return packageRepository.findByReleaseId(releaseId);
@@ -64,30 +57,25 @@ class ReleasePackageService {
 
     async getPackageByVersion(releaseId, version) {
         if (!mongoose.isValidObjectId(releaseId)) {
-            const error = new Error('Invalid release ID');
-            error.statusCode = 400;
-            throw error;
+            throw new ApplicationError('Invalid release ID', 400);
         }
 
         const packageVersion = Number(version);
         if (!Number.isInteger(packageVersion) || packageVersion < 1) {
-            const error = new Error('Package version must be a positive integer');
-            error.statusCode = 400;
-            throw error;
+            throw new ApplicationError(
+                'Package version must be a positive integer',
+                400
+            );
         }
 
         const release = await releaseRepository.findById(releaseId);
         if (!release) {
-            const error = new Error('Release not found');
-            error.statusCode = 404;
-            throw error;
+            throw new ApplicationError('Release not found', 404);
         }
 
         const packageDoc = await packageRepository.findByVersion(releaseId, packageVersion);
         if (!packageDoc) {
-            const error = new Error('Package version not found');
-            error.statusCode = 404;
-            throw error;
+            throw new ApplicationError('Package version not found', 404);
         }
 
         return packageDoc;

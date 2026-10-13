@@ -1,10 +1,14 @@
 
 const jsonpatch = require('fast-json-patch');
+const mongoose = require('mongoose');
 
 const ReleaseRepository = require('../repository/release.repository');
 const ReleasePackageRepository = require('../repository/releasePackage.repository');
 const ReleaseBriefRepository = require('../repository/releaseBrief.repository');
 const briefComparisonGeminiService = require('./briefComparisonGemini.service');
+const briefComparisonCache = require('./briefComparisonCache.service');
+const logger = require('../utils/logger');
+const ApplicationError = require('../utils/ApplicationError');
 
 const BRIEF_FIELDS = [
     'tech_summary',
@@ -23,17 +27,11 @@ const PACKAGE_FIELDS = [
     'affected_user_groups'
 ];
 
-function httpError(message, statusCode) {
-    const error = new Error(message);
-    error.statusCode = statusCode;
-    return error;
-}
-
 function validateVersion(value, fieldName) {
     const version = Number(value);
 
     if (!Number.isSafeInteger(version) || version < 1) {
-        throw httpError(`${fieldName} must be a positive integer`, 400);
+        throw new ApplicationError(`${fieldName} must be a positive integer`, 400);
     }
 
     return version;
@@ -340,21 +338,29 @@ function comparePackages(packageA, packageB) {
 }
 
 async function compareBriefVersions(releaseId, from, to) {
-    if (!releaseId) {
-        throw httpError('releaseId is required', 400);
+    if (!mongoose.isValidObjectId(releaseId)) {
+        throw new ApplicationError('Invalid release ID', 400);
     }
 
     const fromVersion = validateVersion(from, 'from');
     const toVersion = validateVersion(to, 'to');
 
     if (fromVersion === toVersion) {
-        throw httpError('Please select two different brief versions', 400);
+        throw new ApplicationError('Please select two different brief versions', 400);
     }
+
+    const cached = await briefComparisonCache.getComparison(
+        releaseId,
+        fromVersion,
+        toVersion
+    );
+
+    if (cached?.comparison) return cached.comparison;
 
     const release = await ReleaseRepository.findById(releaseId);
 
     if (!release) {
-        throw httpError('Release not found', 404);
+        throw new ApplicationError('Release not found', 404);
     }
 
     const [briefA, briefB] = await Promise.all([
@@ -363,7 +369,7 @@ async function compareBriefVersions(releaseId, from, to) {
     ]);
 
     if (!briefA || !briefB) {
-        throw httpError('One or both brief versions were not found', 404);
+        throw new ApplicationError('One or both brief versions were not found', 404);
     }
 
     const [packageA, packageB] = await Promise.all([
@@ -404,13 +410,15 @@ async function compareBriefVersions(releaseId, from, to) {
             ...analysis
         };
     } catch (error) {
-        console.error(
-            'Brief comparison AI analysis failed:',
-            error.message
-        );
+        logger.error('brief_comparison.ai_analysis_failed', {
+            release_id: String(releaseId),
+            from_brief_version: fromVersion,
+            to_brief_version: toVersion,
+            error: logger.errorDetails(error)
+        });
     }
 
-    return {
+    const result = {
         release_id: String(releaseId),
         comparison: {
             from: metadata(briefA),
@@ -420,6 +428,18 @@ async function compareBriefVersions(releaseId, from, to) {
         package_diff: packageDiff,
         ai_analysis: aiAnalysis
     };
+
+    if (cached && aiAnalysis.status === 'completed') {
+        await briefComparisonCache.cacheComparison(
+            releaseId,
+            fromVersion,
+            toVersion,
+            cached.revision,
+            result
+        );
+    }
+
+    return result;
 }
 
 module.exports = { compareBriefVersions };

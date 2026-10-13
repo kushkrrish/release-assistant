@@ -1,5 +1,7 @@
 const mongoose = require('mongoose');
+
 const releaseRepository = require('../repository/release.repository');
+const ApplicationError = require('../utils/ApplicationError');
 
 class ReleaseService {
   async createRelease(data) {
@@ -16,15 +18,11 @@ class ReleaseService {
 
   async getReleaseById(releaseId) {
     if (!mongoose.isValidObjectId(releaseId)) {
-      const error = new Error('Invalid release ID');
-      error.statusCode = 400;
-      throw error;
+      throw new ApplicationError('Invalid release ID', 400);
     }
     const release = await releaseRepository.findById(releaseId);
     if (!release) {
-      const error = new Error('Release not found');
-      error.statusCode = 404;
-      throw error;
+      throw new ApplicationError('Release not found', 404);
     }
     return release;
   }

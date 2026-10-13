@@ -5,29 +5,25 @@ const releaseRepository = require('../repository/release.repository');
 const packageRepository = require('../repository/releasePackage.repository');
 const briefRepository = require('../repository/releaseBrief.repository');
 const geminiService = require('./gemini.service');
+const briefComparisonCache = require('./briefComparisonCache.service');
+const ApplicationError = require('../utils/ApplicationError');
 
 class ReleaseBriefService {
     async generateBrief(releaseId, packageVersion) {
         if (!mongoose.isValidObjectId(releaseId)) {
-            const error = new Error('Invalid release ID');
-            error.statusCode = 400;
-            throw error;
+            throw new ApplicationError('Invalid release ID', 400);
         }
 
         const version = Number(packageVersion);
 
         if (!Number.isInteger(version) || version < 1) {
-            const error = new Error('Invalid package version');
-            error.statusCode = 400;
-            throw error;
+            throw new ApplicationError('Invalid package version', 400);
         }
 
         const release = await releaseRepository.findById(releaseId);
 
         if (!release) {
-            const error = new Error('Release not found');
-            error.statusCode = 404;
-            throw error;
+            throw new ApplicationError('Release not found', 404);
         }
 
         const packageDoc = await packageRepository.findByVersion(
@@ -37,14 +33,21 @@ class ReleaseBriefService {
 
 
         if (!packageDoc) {
-            const error = new Error('Release package not found');
-            error.statusCode = 404;
-            throw error;
+            throw new ApplicationError('Release package not found', 404);
         }
+        // Retrieve the immutable record first. This permits retrieval of a
+        // stale brief while preventing regeneration for the same package.
+        const existingBrief = await briefRepository.findByPackageVersion(
+            releaseId,
+            version
+        );
+        if (existingBrief) return existingBrief;
+
         if (version !== release.current_package_version) {
-            const error = new Error('Generate briefs from the latest package version only');
-            error.statusCode = 409;
-            throw error;
+            throw new ApplicationError(
+                'Generate briefs from the latest package version only',
+                409
+            );
         }
 
         // Deterministic pre-checks before calling Gemini.
@@ -54,18 +57,17 @@ class ReleaseBriefService {
                 item => typeof item === 'string' && item.trim()
             )
         ) {
-            const error = new Error('At least one completed feature is required');
-            error.statusCode = 400;
-            throw error;
+            throw new ApplicationError(
+                'At least one completed feature is required',
+                400
+            );
         }
 
         if (
             typeof packageDoc.qa_summary !== 'string' ||
             !packageDoc.qa_summary.trim()
         ) {
-            const error = new Error('QA summary is required');
-            error.statusCode = 400;
-            throw error;
+            throw new ApplicationError('QA summary is required', 400);
         }
 
         // AI generation happens before the database writes.
@@ -82,13 +84,13 @@ class ReleaseBriefService {
         const updatedRelease = await releaseRepository.incrementBriefVersion(releaseId);
 
         if (!updatedRelease) {
-            const error = new Error('Release not found');
-            error.statusCode = 404;
-            throw error;
+            throw new ApplicationError('Release not found', 404);
         }
 
         const briefVersion = updatedRelease.current_brief_version;
-        const createdBrief = await briefRepository.create({
+        let createdBrief;
+        try {
+          createdBrief = await briefRepository.create({
             release_id: releaseId,
             package_id: packageDoc._id,
             package_version: version,
@@ -102,7 +104,15 @@ class ReleaseBriefService {
             qa_evidence_check: generated.qa_evidence_check,
             status: 'pending',
             is_stale: version !== updatedRelease.current_package_version
-        });
+          });
+        } catch (error) {
+          // The database index is the concurrency-safe enforcement point.
+          if (error?.code === 11000) {
+            const concurrentBrief = await briefRepository.findByPackageVersion(releaseId, version);
+            if (concurrentBrief) return concurrentBrief;
+          }
+          throw error;
+        }
 
         await releaseRepository.setCurrentBrief(
             releaseId,
@@ -115,17 +125,13 @@ class ReleaseBriefService {
 
     async getBriefsByRelease(releaseId) {
         if (!mongoose.isValidObjectId(releaseId)) {
-            const error = new Error('Invalid release ID');
-            error.statusCode = 400;
-            throw error;
+            throw new ApplicationError('Invalid release ID', 400);
         }
 
         const release = await releaseRepository.findById(releaseId);
 
         if (!release) {
-            const error = new Error('Release not found');
-            error.statusCode = 404;
-            throw error;
+            throw new ApplicationError('Release not found', 404);
         }
 
         return briefRepository.findByReleaseId(releaseId);
@@ -136,17 +142,13 @@ class ReleaseBriefService {
             !mongoose.isValidObjectId(releaseId) ||
             !mongoose.isValidObjectId(briefId)
         ) {
-            const error = new Error('Invalid release ID or brief ID');
-            error.statusCode = 400;
-            throw error;
+            throw new ApplicationError('Invalid release ID or brief ID', 400);
         }
 
         const brief = await briefRepository.findById(briefId);
 
         if (!brief || brief.release_id.toString() !== releaseId) {
-            const error = new Error('Release brief not found');
-            error.statusCode = 404;
-            throw error;
+            throw new ApplicationError('Release brief not found', 404);
         }
 
         return brief;
@@ -156,15 +158,11 @@ class ReleaseBriefService {
         const brief = await this.getBriefById(releaseId, briefId);
 
         if (brief.is_stale) {
-            const error = new Error('A stale brief cannot be edited');
-            error.statusCode = 409;
-            throw error;
+            throw new ApplicationError('A stale brief cannot be edited', 409);
         }
 
         if (brief.status === 'approved') {
-            const error = new Error('An approved brief cannot be edited');
-            error.statusCode = 409;
-            throw error;
+            throw new ApplicationError('An approved brief cannot be edited', 409);
         }
 
         const allowedFields = [
@@ -184,9 +182,7 @@ class ReleaseBriefService {
         }
 
         if (Object.keys(fields).length === 0) {
-            const error = new Error('No editable fields provided');
-            error.statusCode = 400;
-            throw error;
+            throw new ApplicationError('No editable fields provided', 400);
         }
 
         const updated = await briefRepository.updateContent(
@@ -202,13 +198,13 @@ class ReleaseBriefService {
         );
 
         if (!updated) {
-            const error = new Error(
-                'Brief cannot be edited in its current state'
+            throw new ApplicationError(
+                'Brief cannot be edited in its current state',
+                409
             );
-            error.statusCode = 409;
-            throw error;
         }
 
+        await briefComparisonCache.invalidateReleaseComparisons(releaseId);
         return updated;
     }
 
@@ -221,15 +217,11 @@ class ReleaseBriefService {
             brief.is_stale ||
             brief.package_version !== release.current_package_version
         ) {
-            const error = new Error('A stale brief cannot be approved');
-            error.statusCode = 409;
-            throw error;
+            throw new ApplicationError('A stale brief cannot be approved', 409);
         }
 
         if (brief.status !== 'pending') {
-            const error = new Error('Only pending briefs can be approved');
-            error.statusCode = 409;
-            throw error;
+            throw new ApplicationError('Only pending briefs can be approved', 409);
         }
 
         const updated = await briefRepository.updateStatus(
@@ -245,13 +237,13 @@ class ReleaseBriefService {
         );
 
         if (!updated) {
-            const error = new Error(
-                'Brief state changed; reload and try again'
+            throw new ApplicationError(
+                'Brief state changed; reload and try again',
+                409
             );
-            error.statusCode = 409;
-            throw error;
         }
 
+        await briefComparisonCache.invalidateReleaseComparisons(releaseId);
         return updated;
     }
 
@@ -259,21 +251,18 @@ class ReleaseBriefService {
         const brief = await this.getBriefById(releaseId, briefId);
 
         if (brief.is_stale) {
-            const error = new Error('A stale brief cannot be rejected');
-            error.statusCode = 409;
-            throw error;
+            throw new ApplicationError('A stale brief cannot be rejected', 409);
         }
 
         if (typeof feedback !== 'string' || !feedback.trim()) {
-            const error = new Error('Feedback is required when rejecting a brief');
-            error.statusCode = 400;
-            throw error;
+            throw new ApplicationError(
+                'Feedback is required when rejecting a brief',
+                400
+            );
         }
 
         if (brief.status !== 'pending') {
-            const error = new Error('Only pending briefs can be rejected');
-            error.statusCode = 409;
-            throw error;
+            throw new ApplicationError('Only pending briefs can be rejected', 409);
         }
 
         const updated = await briefRepository.updateStatus(
@@ -289,13 +278,13 @@ class ReleaseBriefService {
         );
 
         if (!updated) {
-            const error = new Error(
-                'Brief state changed; reload and try again'
+            throw new ApplicationError(
+                'Brief state changed; reload and try again',
+                409
             );
-            error.statusCode = 409;
-            throw error;
         }
 
+        await briefComparisonCache.invalidateReleaseComparisons(releaseId);
         return updated;
     }
 }

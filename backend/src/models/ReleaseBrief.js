@@ -274,12 +274,10 @@ releaseBriefSchema.index(
   { unique: true }
 );
 
+releaseBriefSchema.index({ release_id: 1, package_version: 1 }, { unique: true });
+
 releaseBriefSchema.index({ status: 1, updatedAt: -1 });
 
-releaseBriefSchema.index({
-  release_id: 1,
-  package_version: 1
-});
 
 module.exports = mongoose.model(
   'ReleaseBrief',

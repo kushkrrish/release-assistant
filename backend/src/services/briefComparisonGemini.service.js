@@ -1,6 +1,7 @@
 
 const { GoogleGenAI } = require('@google/genai');
 const config = require('../config/config');
+const ApplicationError = require('../utils/ApplicationError');
 
 const ai = new GoogleGenAI({
     apiKey: config.GEMINI_API_KEY
@@ -201,9 +202,7 @@ async function analyzeComparison({
     packageDiff
 }) {
     if (!config.GEMINI_API_KEY) {
-        const error = new Error('Gemini API key is not configured');
-        error.statusCode = 500;
-        throw error;
+        throw new ApplicationError('Gemini API key is not configured', 500);
     }
 
     const prompt = buildComparisonPrompt({
@@ -225,7 +224,9 @@ async function analyzeComparison({
     });
 
     if (!response.text) {
-        throw new Error('Gemini returned an empty comparison analysis');
+        throw new ApplicationError(
+            'Gemini returned an empty comparison analysis'
+        );
     }
 
     let result;
@@ -233,7 +234,7 @@ async function analyzeComparison({
     try {
         result = JSON.parse(response.text);
     } catch (error) {
-        throw new Error('Gemini returned invalid JSON');
+        throw new ApplicationError('Gemini returned invalid JSON');
     }
 
     // Validate the main response structure.
@@ -243,7 +244,9 @@ async function analyzeComparison({
         !Array.isArray(result.potential_impacts) ||
         !Array.isArray(result.readiness_concerns)
     ) {
-        throw new Error('Gemini returned an invalid comparison analysis');
+        throw new ApplicationError(
+            'Gemini returned an invalid comparison analysis'
+        );
     }
 
     // Validate impact entries before returning them to the controller.
@@ -272,7 +275,7 @@ async function analyzeComparison({
                 field => typeof field === 'string'
             )
         ) {
-            throw new Error('Gemini returned an invalid impact entry');
+            throw new ApplicationError('Gemini returned an invalid impact entry');
         }
     }
 
@@ -310,7 +313,9 @@ async function analyzeComparison({
                 step => typeof step === 'string'
             )
         ) {
-            throw new Error('Gemini returned an invalid readiness concern');
+            throw new ApplicationError(
+                'Gemini returned an invalid readiness concern'
+            );
         }
     }
 

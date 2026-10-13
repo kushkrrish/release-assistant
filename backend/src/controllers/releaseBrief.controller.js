@@ -1,6 +1,8 @@
 
 const releaseBriefService = require('../services/releaseBrief.service');
 const briefComparisonService = require('../services/briefComparison.service');
+const logger = require('../utils/logger');
+
 const generateBrief = async (req, res) => {
   try {
     const brief = await releaseBriefService.generateBrief(
@@ -14,6 +16,7 @@ const generateBrief = async (req, res) => {
       data: brief
     });
   } catch (error) {
+    logger.logRequestError(req, error, 'http.release_brief.generate_failed');
     return res.status(error.statusCode || 500).json({
       success: false,
       message: error.statusCode
@@ -35,6 +38,7 @@ const getBriefsByRelease = async (req, res) => {
       data: briefs
     });
   } catch (error) {
+    logger.logRequestError(req, error, 'http.release_brief.list_failed');
     return res.status(error.statusCode || 500).json({
       success: false,
       message: error.statusCode
@@ -56,6 +60,7 @@ const getBriefById = async (req, res) => {
       data: brief
     });
   } catch (error) {
+    logger.logRequestError(req, error, 'http.release_brief.get_failed');
     return res.status(error.statusCode || 500).json({
       success: false,
       message: error.statusCode
@@ -89,6 +94,7 @@ const editBrief = async (req, res) => {
       data: brief
     });
   } catch (error) {
+    logger.logRequestError(req, error, 'http.release_brief.edit_failed');
     return res.status(error.statusCode || 500).json({
       success: false,
       message: error.statusCode
@@ -122,6 +128,7 @@ const approveBrief = async (req, res) => {
       data: brief
     });
   } catch (error) {
+    logger.logRequestError(req, error, 'http.release_brief.approve_failed');
     return res.status(error.statusCode || 500).json({
       success: false,
       message: error.statusCode
@@ -155,6 +162,7 @@ const rejectBrief = async (req, res) => {
       data: brief
     });
   } catch (error) {
+    logger.logRequestError(req, error, 'http.release_brief.reject_failed');
     return res.status(error.statusCode || 500).json({
       success: false,
       message: error.statusCode
@@ -167,7 +175,6 @@ const compareBriefVersions = async (req, res) => {
   try {
     const { releaseId } = req.params;
     const { from, to } = req.query;
-    console.log('Received request to compare brief versions:', { releaseId, from, to });
 
     const result = await briefComparisonService.compareBriefVersions(
       releaseId,
@@ -181,6 +188,7 @@ const compareBriefVersions = async (req, res) => {
       data: result
     });
   } catch (error) {
+    logger.logRequestError(req, error, 'http.release_brief.compare_failed');
     return res.status(error.statusCode || 500).json({
       success: false,
       message: error.statusCode

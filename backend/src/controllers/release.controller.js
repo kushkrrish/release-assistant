@@ -1,4 +1,5 @@
 const releaseService = require('../services/release.service');
+const logger = require('../utils/logger');
 
 const createRelease = async (req, res) => {
   try {
@@ -9,6 +10,7 @@ const createRelease = async (req, res) => {
       data: release
     });
   } catch (error) {
+    logger.logRequestError(req, error, 'http.release.create_failed');
     const statusCode = error.statusCode || 500;
     return res.status(statusCode).json({
       success: false,
@@ -26,6 +28,7 @@ const getAllReleases = async (req, res) => {
       data: releases
     });
   } catch (error) {
+    logger.logRequestError(req, error, 'http.release.list_failed');
     const statusCode = error.statusCode || 500;
     return res.status(statusCode).json({
       success: false,
@@ -42,6 +45,7 @@ const getReleaseById = async (req, res) => {
       data: release
     });
   } catch (error) {
+    logger.logRequestError(req, error, 'http.release.get_failed');
     const statusCode = error.statusCode || 500;
     return res.status(statusCode).json({
       success: false,

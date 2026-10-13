@@ -1,4 +1,5 @@
 const packageService = require('../services/releasePackage.service');
+const logger = require('../utils/logger');
 
 const createPackage = async (req, res) => {
   try {
@@ -9,6 +10,7 @@ const createPackage = async (req, res) => {
       data: packageDoc
     });
   } catch (error) {
+    logger.logRequestError(req, error, 'http.release_package.create_failed');
     let statusCode = error.statusCode || 500;
     let message = error.message || 'Internal server error';
 
@@ -33,6 +35,7 @@ const getPackageHistory = async (req, res) => {
       data: packages
     });
   } catch (error) {
+    logger.logRequestError(req, error, 'http.release_package.list_failed');
     const statusCode = error.statusCode || 500;
     return res.status(statusCode).json({
       success: false,
@@ -52,6 +55,7 @@ const getPackageByVersion = async (req, res) => {
       data: packageDoc
     });
   } catch (error) {
+    logger.logRequestError(req, error, 'http.release_package.get_failed');
     const statusCode = error.statusCode || 500;
     return res.status(statusCode).json({
       success: false,
